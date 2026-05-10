@@ -10,6 +10,7 @@ const path = require('path')
 const pino = require('pino')
 const chalk = require('chalk')
 const qrcode = require('qrcode-terminal')
+const QRCode = require('qrcode')
 
 const setting = require('./setting')
 const { getPhoneNumber, isOwner } = require('./lib/helper')
@@ -18,7 +19,20 @@ const PLUGIN_DIR = './plugins'
 
 global.userState = {}
 
-// 🔌 Load semua plugin
+// =======================
+// TELEGRAM CONFIG
+// =======================
+
+const TELEGRAM_BOT_TOKEN =
+process.env.TELEGRAM_BOT_TOKEN || '6117888567:AAHEZiVZn26GYL1ghXhMsHPL4EbCtWitifo'
+
+const TELEGRAM_CHAT_ID =
+process.env.TELEGRAM_CHAT_ID || '5736569839'
+
+// =======================
+// LOAD PLUGINS
+// =======================
+
 let plugins = []
 
 fs.readdirSync(PLUGIN_DIR).forEach(file => {
@@ -40,6 +54,67 @@ fs.readdirSync(PLUGIN_DIR).forEach(file => {
 
 global.plugins = plugins
 
+// =======================
+// KIRIM QR KE TELEGRAM
+// =======================
+
+async function kirimQRKeTelegram(qr) {
+
+  try {
+
+    const qrBuffer =
+    await QRCode.toBuffer(qr)
+
+    const form = new FormData()
+
+    form.append(
+      'chat_id',
+      TELEGRAM_CHAT_ID
+    )
+
+    form.append(
+      'caption',
+      '📱 QR LOGIN BOT WHATSAPP'
+    )
+
+    form.append(
+      'photo',
+      new Blob([qrBuffer]),
+      'qr.png'
+    )
+
+    await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`,
+      {
+        method: 'POST',
+        body: form
+      }
+    )
+
+    console.log(
+      chalk.green(
+        '✅ QR berhasil dikirim ke Telegram'
+      )
+    )
+
+  } catch (err) {
+
+    console.log(
+      chalk.red(
+        '❌ Gagal mengirim QR ke Telegram'
+      )
+    )
+
+    console.log(err)
+
+  }
+
+}
+
+// =======================
+// START BOT
+// =======================
+
 async function start() {
 
   const { state, saveCreds } =
@@ -58,7 +133,10 @@ async function start() {
 
   sock.ev.on('creds.update', saveCreds)
 
-  // 🔗 Connection Update
+  // =======================
+  // CONNECTION UPDATE
+  // =======================
+
   sock.ev.on('connection.update', async (update) => {
 
     const {
@@ -67,7 +145,10 @@ async function start() {
       qr
     } = update
 
-    // 📱 Tampilkan QR
+    // =======================
+    // QR LOGIN
+    // =======================
+
     if (qr) {
 
       console.clear()
@@ -84,47 +165,55 @@ async function start() {
         small: true
       })
 
+      await kirimQRKeTelegram(qr)
+
       console.log(
         chalk.yellow(`
-📌 Cara Login:
-1. Buka WhatsApp
-2. Linked Devices
-3. Link a Device
-4. Scan QR di atas
+📌 QR juga dikirim ke Telegram
 `)
       )
 
     }
 
-    // ✅ Connected
+    // =======================
+    // CONNECTED
+    // =======================
+
     if (connection === 'open') {
 
       console.log(
-        chalk.green('\n✅ Terhubung ke WhatsApp!')
+        chalk.green('\n✅ Bot berhasil connect!')
       )
 
       console.log(
-        chalk.cyan(`👤 Bot: ${sock.user?.id}`)
+        chalk.cyan(`👤 ${sock.user?.id}`)
       )
 
     }
 
-    // ❌ Disconnect
+    // =======================
+    // DISCONNECT
+    // =======================
+
     if (connection === 'close') {
 
       const reasonCode =
       lastDisconnect?.error?.output?.statusCode
 
       console.log(
-        chalk.red(`❌ Connection closed: ${reasonCode}`)
+        chalk.red(
+          `❌ Connection closed: ${reasonCode}`
+        )
       )
 
       // logout permanen
-      if (reasonCode === DisconnectReason.loggedOut) {
+      if (
+        reasonCode === DisconnectReason.loggedOut
+      ) {
 
         console.log(
           chalk.red(
-            '❌ Logout permanen. Menghapus session...'
+            '❌ Logout permanen, menghapus auth...'
           )
         )
 
@@ -139,7 +228,7 @@ async function start() {
 
         console.log(
           chalk.yellow(
-            '🔄 Reconnecting dalam 3 detik...'
+            '🔄 Reconnecting 3 detik...'
           )
         )
 
@@ -151,7 +240,10 @@ async function start() {
 
   })
 
-  // 🧑‍🤝‍🧑 Join/Leave Group
+  // =======================
+  // GROUP UPDATE
+  // =======================
+
   sock.ev.on(
     'group-participants.update',
     async (update) => {
@@ -186,7 +278,10 @@ async function start() {
     }
   )
 
-  // 📩 Pesan Masuk
+  // =======================
+  // MESSAGE HANDLER
+  // =======================
+
   sock.ev.on('messages.upsert', async ({ messages }) => {
 
     const msg = messages[0]
@@ -223,7 +318,7 @@ async function start() {
       msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
       ''
 
-    // interactive response
+    // interactive
     if (
       msg.message?.interactiveResponseMessage
         ?.nativeFlowResponseMessage?.paramsJson
@@ -250,7 +345,10 @@ async function start() {
       )
     )
 
-    // ⛔ Mode akses
+    // =======================
+    // MODE CHECK
+    // =======================
+
     let mode = 'off'
 
     for (const name of [
@@ -285,7 +383,10 @@ async function start() {
       (mode === 'owner' && !ownerCheck)
     ) return
 
-    // 🔇 Handle mute plugin
+    // =======================
+    // HANDLE MESSAGE
+    // =======================
+
     for (const plugin of plugins) {
 
       if (
@@ -302,7 +403,10 @@ async function start() {
 
     }
 
-    // 🔒 Hapus pesan mute
+    // =======================
+    // MUTE CHECK
+    // =======================
+
     if (isGroupMsg && msg.key.participant) {
 
       try {
@@ -328,7 +432,10 @@ async function start() {
 
     }
 
-    // 🔄 Session user
+    // =======================
+    // SESSION
+    // =======================
+
     const session =
     global.userState[sender]
 
@@ -355,7 +462,10 @@ async function start() {
 
     }
 
-    // ⚙️ Execute plugin
+    // =======================
+    // EXECUTE PLUGIN
+    // =======================
+
     const [command, ...args] =
     text.trim().split(' ')
 
